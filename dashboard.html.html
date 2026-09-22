@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Dashboard — Mahadev Computer Service Center</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="brand"><span class="logo">M</span> Mahadev Computer Service Center</a>
+    <nav class="nav-links"><a href="index.html">Home</a><a href="services.html">Services</a>
+      <a href="chat.html">Live Chat</a><span id="navAuth"></span></nav>
+  </div>
+</header>
+
+<main class="container">
+  <h1>My Dashboard</h1>
+  <p class="lead" id="welcome" style="margin-bottom:22px"></p>
+
+  <div class="tabs">
+    <button class="active" data-tab="requests">My Service Requests</button>
+    <button data-tab="new">New Request</button>
+    <button data-tab="profile">Profile</button>
+  </div>
+
+  <section class="tab-panel active" id="tab-requests">
+    <div class="alert" id="msg"></div>
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table><thead><tr>
+        <th>Service</th><th>Issue</th><th>Date</th><th>Status</th><th></th>
+      </tr></thead><tbody id="reqBody"></tbody></table>
+    </div>
+    <div class="empty" id="reqEmpty" style="display:none">No requests yet — raise your first one from the New Request tab.</div>
+  </section>
+
+  <section class="tab-panel" id="tab-new">
+    <div class="card">
+      <h3>Raise a new service request</h3>
+      <div class="alert" id="msg2"></div>
+      <form id="newReq">
+        <div class="field"><label for="svcSel">Service</label><select id="svcSel"></select></div>
+        <div class="field"><label for="issue2">Describe the problem</label><textarea id="issue2" required></textarea></div>
+        <div class="field"><label for="pref2">Preferred visit date</label><input id="pref2" type="date"></div>
+        <div class="field"><label for="addr2">Address for on-site visit</label><input id="addr2"></div>
+        <button class="btn block" type="submit">Submit request</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-profile">
+    <div class="card" style="max-width:520px">
+      <h3>My profile</h3>
+      <div class="alert" id="msg3"></div>
+      <form id="profForm">
+        <div class="field"><label for="pName">Full name</label><input id="pName"></div>
+        <div class="field"><label for="pPhone">Mobile</label><input id="pPhone"></div>
+        <div class="field"><label for="pAddr">Address</label><input id="pAddr"></div>
+        <button class="btn" type="submit">Save changes</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer><div class="container footer-inner"><div><strong>Mahadev Computer Service Center</strong></div>
+  <div><a href="chat.html">Live Chat</a> · <a href="services.html">Services</a> · <a href="index.html">Home</a></div></div></footer>
+
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script src="js/config.js"></script><script src="js/app.js"></script>
+<script>
+const badge = (s) => {
+  const c = s === "new" ? "new" : s === "in_progress" ? "progress" : "done";
+  const t = s === "new" ? "New" : s === "in_progress" ? "In progress" : s === "completed" ? "Completed" : "Cancelled";
+  return `<span class="badge ${c}">${t}</span>`;
+};
+
+(async function () {
+  const user = await requireUser();
+  if (!user) return;
+  $("#welcome").textContent = "Welcome, " + (user.user_metadata?.full_name || user.email);
+
+  $$(".tabs button").forEach((b) => b.onclick = () => {
+    $$(".tabs button").forEach((x) => x.classList.remove("active"));
+    $$(".tab-panel").forEach((p) => p.classList.remove("active"));
+    b.classList.add("active");
+    $("#tab-" + b.dataset.tab).classList.add("active");
+  });
+
+  $("#svcSel").innerHTML = SERVICES.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
+
+  const { data: prof } = await sb.from("profiles").select("*").eq("id", user.id).single();
+  $("#pName").value  = prof?.full_name || user.user_metadata?.full_name || "";
+  $("#pPhone").value = prof?.phone || "";
+  $("#pAddr").value  = prof?.address || "";
+
+  async function loadRequests() {
+    const { data, error } = await sb.from("service_requests")
+      .select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+    if (error) return toast($("#msg"), error.message);
+    const body = $("#reqBody");
+    body.innerHTML = (data || []).map((r) => `
+      <tr>
+        <td><strong>${r.service_name}</strong></td>
+        <td>${(r.issue || "").slice(0, 70)}</td>
+        <td>${fmtDate(r.created_at)}</td>
+        <td>${badge(r.status)}</td>
+        <td><a class="btn sm ghost" href="chat.html">Chat</a></td>
+      </tr>`).join("");
+    $("#reqEmpty").style.display = data && data.length ? "none" : "block";
+  }
+  loadRequests();
+
+  $("#newReq").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const svc = findService($("#svcSel").value);
+    const { error } = await sb.from("service_requests").insert({
+      user_id: user.id,
+      customer_email: user.email,
+      customer_name: prof?.full_name || user.email,
+      customer_phone: prof?.phone || null,
+      service_id: svc.id, service_name: svc.name,
+      issue: $("#issue2").value.trim(),
+      preferred_date: $("#pref2").value || null,
+      address: $("#addr2").value.trim() || null,
+      status: "new",
+    });
+    if (error) return toast($("#msg2"), error.message);
+    toast($("#msg2"), "Request submitted!", "ok");
+    $("#newReq").reset();
+    loadRequests();
+  });
+
+  $("#profForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const { error } = await sb.from("profiles").upsert({
+      id: user.id, full_name: $("#pName").value, phone: $("#pPhone").value, address: $("#pAddr").value, role: "customer",
+    });
+    toast($("#msg3"), error ? error.message : "Profile saved.", error ? "err" : "ok");
+  });
+})();
+</script>
+</body>
+</html>

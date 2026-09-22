@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Register — Mahadev Computer Service Center</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="brand"><span class="logo">M</span> Mahadev Computer Service Center</a>
+    <nav class="nav-links"><a href="index.html">Home</a><a href="services.html">Services</a>
+      <span id="navAuth"></span><a href="admin-login.html">Admin</a></nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="auth-wrap">
+    <h1>Create your account</h1>
+    <p class="lead" style="margin-bottom:20px">Book services, track jobs and chat with our technicians.</p>
+    <div class="card">
+      <div class="alert" id="msg"></div>
+      <form id="regForm">
+        <div class="field"><label for="name">Full name</label>
+          <input id="name" required autocomplete="name" placeholder="Ramesh Kumar"></div>
+        <div class="field"><label for="email">Email</label>
+          <input id="email" type="email" required autocomplete="email" placeholder="you@example.com"></div>
+        <div class="field"><label for="phone">Mobile number</label>
+          <input id="phone" required pattern="[0-9+\- ]{10,15}" placeholder="98765 43210"></div>
+        <div class="field"><label for="address">Address / Area</label>
+          <input id="address" placeholder="Ward 5, Main Road"></div>
+        <div class="field"><label for="password">Password</label>
+          <input id="password" type="password" required minlength="6" autocomplete="new-password"></div>
+        <button class="btn block" type="submit">Create account</button>
+      </form>
+      <p class="hint">Already registered? <a href="login.html">Login here</a></p>
+    </div>
+  </div>
+</main>
+
+<footer><div class="container footer-inner"><div><strong>Mahadev Computer Service Center</strong></div>
+  <div><a href="index.html">Home</a> · <a href="login.html">Login</a> · <a href="admin-login.html">Admin</a></div></div></footer>
+
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script src="js/config.js"></script><script src="js/app.js"></script>
+<script>
+$("#regForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("#msg"), btn = e.target.querySelector("button");
+  btn.disabled = true; btn.textContent = "Creating…";
+  const meta = {
+    full_name: $("#name").value.trim(),
+    phone: $("#phone").value.trim(),
+    address: $("#address").value.trim(),
+  };
+  const { data, error } = await sb.auth.signUp({
+    email: $("#email").value.trim(),
+    password: $("#password").value,
+    options: { data: meta },
+  });
+  btn.disabled = false; btn.textContent = "Create account";
+  if (error) return toast(msg, error.message);
+
+  // store profile row (works when email confirmation is off; RLS allows self-insert)
+  if (data.user) {
+    await sb.from("profiles").upsert({
+      id: data.user.id,
+      full_name: meta.full_name,
+      phone: meta.phone,
+      address: meta.address,
+      role: "customer",
+    });
+  }
+  if (!data.session) {
+    toast(msg, "Account created. Please check your email to confirm, then log in.", "ok");
+    setTimeout(() => (location.href = "login.html"), 2500);
+  } else {
+    toast(msg, "Account created! Redirecting…", "ok");
+    setTimeout(() => (location.href = "dashboard.html"), 1200);
+  }
+});
+</script>
+</body>
+</html>

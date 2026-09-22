@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Login — Mahadev Computer Service Center</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="brand"><span class="logo">M</span> Mahadev Computer Service Center</a>
+    <nav class="nav-links"><a href="index.html">Home</a><a href="services.html">Services</a>
+      <span id="navAuth"></span><a href="admin-login.html">Admin</a></nav>
+  </div>
+</header>
+
+<main class="container">
+  <div class="auth-wrap">
+    <h1>Welcome back</h1>
+    <p class="lead" style="margin-bottom:20px">Log in to track your service requests and chat.</p>
+    <div class="card">
+      <div class="alert" id="msg"></div>
+      <form id="loginForm">
+        <div class="field"><label for="email">Email</label>
+          <input id="email" type="email" required autocomplete="email"></div>
+        <div class="field"><label for="password">Password</label>
+          <input id="password" type="password" required autocomplete="current-password"></div>
+        <button class="btn block" type="submit">Login</button>
+      </form>
+      <p class="hint"><a href="#" id="forgot">Forgot password?</a> · New here? <a href="register.html">Register</a></p>
+    </div>
+    <p class="hint">Service center staff? <a href="admin-login.html">Admin login</a></p>
+  </div>
+</main>
+
+<footer><div class="container footer-inner"><div><strong>Mahadev Computer Service Center</strong></div>
+  <div><a href="index.html">Home</a> · <a href="register.html">Register</a> · <a href="admin-login.html">Admin</a></div></div></footer>
+
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script src="js/config.js"></script><script src="js/app.js"></script>
+<script>
+$("#loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("#msg"), btn = e.target.querySelector("button");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { error } = await sb.auth.signInWithPassword({
+    email: $("#email").value.trim(), password: $("#password").value,
+  });
+  btn.disabled = false; btn.textContent = "Login";
+  if (error) return toast(msg, error.message);
+  location.href = "dashboard.html";
+});
+
+$("#forgot").onclick = async (e) => {
+  e.preventDefault();
+  const email = $("#email").value.trim();
+  if (!email) return toast($("#msg"), "Enter your email above first.");
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: location.origin + location.pathname.replace("login.html", "login.html"),
+  });
+  toast($("#msg"), error ? error.message : "Reset link sent — check your inbox.", error ? "err" : "ok");
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Service — Mahadev Computer Service Center</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="brand"><span class="logo">M</span> Mahadev Computer Service Center</a>
+    <nav class="nav-links"><a href="index.html">Home</a><a href="services.html">Services</a>
+      <span id="navChat"></span><span id="navAuth"></span><a href="admin-login.html">Admin</a></nav>
+  </div>
+</header>
+
+<main class="container">
+  <p><a href="services.html">← All services</a></p>
+  <h1 id="svcName">Service</h1>
+  <p class="lead" id="svcDesc"></p>
+
+  <div class="grid cols-2" style="margin-top:26px">
+    <div class="card">
+      <h3>What's included</h3>
+      <ul id="svcPoints" style="padding-left:20px;color:var(--muted);font-size:.95rem"></ul>
+    </div>
+    <div class="card">
+      <h3>Book this service</h3>
+      <p>Send a request — we'll confirm the visit slot by chat or phone.</p>
+      <div class="alert" id="msg"></div>
+      <form id="reqForm">
+        <input type="hidden" id="serviceId">
+        <div class="field"><label for="issue">Describe the problem</label>
+          <textarea id="issue" required placeholder="e.g. Laptop switches off after 10 minutes, fan noise loud."></textarea></div>
+        <div class="field"><label for="pref">Preferred visit date</label>
+          <input id="pref" type="date"></div>
+        <div class="field"><label for="addr">Address for on-site visit</label>
+          <input id="addr" placeholder="House / shop, area, landmark"></div>
+        <button class="btn block" type="submit">Submit service request</button>
+      </form>
+      <p class="hint" id="loginNote"></p>
+    </div>
+  </div>
+</main>
+
+<footer><div class="container footer-inner"><div><strong>Mahadev Computer Service Center</strong></div>
+  <div><a href="index.html">Home</a> · <a href="services.html">Services</a> · <a href="chat.html">Live Chat</a></div></div></footer>
+
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script src="js/config.js"></script><script src="js/app.js"></script>
+<script>
+const EXTRA = {
+  "laptop-repair":["Free diagnosis","Screen / keyboard / battery replacement","Overheating & fan cleaning","Motherboard level repair"],
+  "printer-service":["Inkjet & laser repair","Cartridge refill","Network printer setup","Annual maintenance"],
+  "cctv-install":["HD / IP camera supply","DVR & NVR configuration","Mobile app viewing setup","Cable & power work"],
+  "software-os":["Windows / Linux installation","MS Office & essential apps","Driver & antivirus setup","Full system formatting"],
+  "data-recovery":["Crashed drive recovery","Pen drive & memory card recovery","Data backup to cloud / external","Secure data wipe"],
+  "networking":["Router & switch setup","LAN cabling","Wi-Fi range extension","Small office network design"],
+  "amc":["Yearly priority support","Scheduled preventive maintenance","Unlimited on-site visits","Discounted spares"],
+  "accessories":["RAM & SSD upgrades","Laptop bags, mouse, keyboard","UPS & power backup","Genuine spare parts"],
+  "onsite":["Doorstep technician visit","Home & office service","Same-day slots","Post-service follow-up"],
+};
+
+(async function init() {
+  const id = new URLSearchParams(location.search).get("id");
+  const svc = findService(id) || SERVICES[0];
+  document.title = svc.name + " — Mahadev Computer Service Center";
+  $("#svcName").textContent = svc.icon + "  " + svc.name;
+  $("#svcDesc").textContent = svc.desc;
+  $("#serviceId").value = svc.id;
+  $("#svcPoints").innerHTML = (EXTRA[svc.id] || []).map((p) => `<li>${p}</li>`).join("");
+
+  const { data: { session } } = await sb.auth.getSession();
+  const form = $("#reqForm");
+  if (!session) {
+    $("#loginNote").innerHTML = 'Please <a href="login.html">log in</a> or <a href="register.html">register</a> to submit a request.';
+    form.querySelectorAll("input,textarea,button").forEach((el) => (el.disabled = true));
+    return;
+  }
+  const { data: prof } = await sb.from("profiles").select("address,phone").eq("id", session.user.id).single();
+  if (prof?.address) $("#addr").value = prof.address;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("button"); btn.disabled = true; btn.textContent = "Sending…";
+    const { error } = await sb.from("service_requests").insert({
+      user_id: session.user.id,
+      customer_email: session.user.email,
+      customer_name: session.user.user_metadata?.full_name || session.user.email,
+      customer_phone: prof?.phone || null,
+      service_id: svc.id,
+      service_name: svc.name,
+      issue: $("#issue").value.trim(),
+      preferred_date: $("#pref").value || null,
+      address: $("#addr").value.trim() || null,
+      status: "new",
+    });
+    btn.disabled = false; btn.textContent = "Submit service request";
+    if (error) return toast($("#msg"), error.message);
+    toast($("#msg"), "Request submitted! Track it on your dashboard.", "ok");
+    form.reset();
+    setTimeout(() => (location.href = "dashboard.html"), 1500);
+  });
+})();
+</script>
+</body>
+</html>

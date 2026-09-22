@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Chat — Mahadev Computer Service Center</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="brand"><span class="logo">M</span> Mahadev Computer Service Center</a>
+    <nav class="nav-links"><a href="index.html">Home</a><a href="services.html">Services</a>
+      <a href="dashboard.html">Dashboard</a><span id="navAuth"></span></nav>
+  </div>
+</header>
+
+<main class="container">
+  <h1>Live Chat Support</h1>
+  <p class="lead" style="margin-bottom:20px">Ask a question or attach photos, bills and documents — our team replies here.</p>
+  <div class="alert" id="msg"></div>
+
+  <div class="chat-layout" id="chatWrap" style="display:none">
+    <aside class="chat-list">
+      <div class="item active" id="mainThread">
+        <strong>Service Center Support</strong>
+        <small>Start or continue your conversation</small>
+      </div>
+      <div class="item" style="cursor:default">
+        <strong>Uploads</strong>
+        <small>PDF, images, docs up to 10 MB</small>
+      </div>
+    </aside>
+
+    <section class="chat-panel">
+      <div class="chat-head" id="chatHead">Service Center Support</div>
+      <div class="chat-body" id="chatBody">
+        <div class="empty">No messages yet — say hello 👋</div>
+      </div>
+      <div class="chat-foot">
+        <div class="row">
+          <input type="file" id="fileInput" style="flex:0 0 auto;width:auto;padding:7px" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.txt">
+          <span class="file-row" id="fileName"></span>
+        </div>
+        <div class="row">
+          <input id="msgInput" placeholder="Type your message…" autocomplete="off">
+          <button class="btn" id="sendBtn">Send</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="card" id="needLogin">
+    <h3>Please log in to use live chat</h3>
+    <p>Chat history and uploaded files stay attached to your account, so our technicians can follow up.</p>
+    <a class="btn" href="login.html">Login</a>
+    <a class="btn ghost" href="register.html">Register</a>
+  </div>
+</main>
+
+<footer><div class="container footer-inner"><div><strong>Mahadev Computer Service Center</strong></div>
+  <div><a href="index.html">Home</a> · <a href="services.html">Services</a> · <a href="dashboard.html">Dashboard</a></div></div></footer>
+
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script src="js/config.js"></script><script src="js/app.js"></script>
+<script>
+let ME = null, CHANNEL = null;
+
+function bubble(m) {
+  const mine = m.sender_id === ME;
+  const file = m.file_url
+    ? `<a href="${m.file_url}" target="_blank" rel="noopener">📎 ${m.file_name || "Attachment"}</a>`
+    : "";
+  const body = m.body ? m.body.replace(/</g, "&lt;") : "";
+  return `<div class="msg ${mine ? "me" : "them"}">
+    ${body}${body && file ? "<br>" : ""}${file}
+    <span class="meta">${mine ? "You" : "Support"} · ${fmtDate(m.created_at)}</span>
+  </div>`;
+}
+
+async function loadThread() {
+  const { data, error } = await sb.from("messages")
+    .select("*").eq("user_id", ME).order("created_at", { ascending: true });
+  if (error) return toast($("#msg"), error.message);
+  const body = $("#chatBody");
+  body.innerHTML = data && data.length
+    ? data.map(bubble).join("")
+    : '<div class="empty">No messages yet — say hello 👋</div>';
+  body.scrollTop = body.scrollHeight;
+}
+
+(async function () {
+  const user = await requireUserOrPrompt();
+  if (!user) return;
+  ME = user.id;
+
+  $("#needLogin").style.display = "none";
+  $("#chatWrap").style.display = "grid";
+  $("#chatHead").textContent = "Support — " + (user.user_metadata?.full_name || user.email);
+  await loadThread();
+
+  CHANNEL = sb.channel("chat-" + ME)
+    .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages", filter: `user_id=eq.${ME}` },
+        () => loadThread())
+    .subscribe();
+
+  $("#fileInput").addEventListener("change", (e) => {
+    $("#fileName").textContent = e.target.files[0]?.name || "";
+  });
+
+  async function send() {
+    const input = $("#msgInput");
+    const text = input.value.trim();
+    const file = $("#fileInput").files[0];
+    if (!text && !file) return;
+
+    const btn = $("#sendBtn"); btn.disabled = true; btn.textContent = "Sending…";
+    let file_url = null, file_name = null;
+
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        btn.disabled = false; btn.textContent = "Send";
+        return toast($("#msg"), "File too large — 10 MB maximum.");
+      }
+      const path = `${ME}/${Date.now()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+      const up = await sb.storage.from("chat-uploads").upload(path, file);
+      if (up.error) { btn.disabled = false; btn.textContent = "Send"; return toast($("#msg"), up.error.message); }
+      const signed = await sb.storage.from("chat-uploads").createSignedUrl(path, 60 * 60 * 24 * 30);
+      file_url = signed.data?.signedUrl || null;
+      file_name = file.name;
+    }
+
+    const { error } = await sb.from("messages").insert({
+      user_id: ME, sender_id: ME, sender_role: "customer",
+      body: text || null, file_url, file_name,
+    });
+    btn.disabled = false; btn.textContent = "Send";
+    if (error) return toast($("#msg"), error.message);
+
+    input.value = ""; $("#fileInput").value = ""; $("#fileName").textContent = "";
+    loadThread();
+  }
+
+  $("#sendBtn").onclick = send;
+  $("#msgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+})();
+
+/* chat page needs the wrapper visible before redirect check resolves */
+async function requireUserOrPrompt() {
+  const { data: { session } } = await sb.auth.getSession();
+  return session ? session.user : null;
+}
+</script>
+</body>
+</html>

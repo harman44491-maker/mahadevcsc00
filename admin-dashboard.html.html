@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin Dashboard — Mahadev Computer Service Center</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="index.html" class="brand"><span class="logo">M</span> Mahadev Computer Service Center</a>
+    <nav class="nav-links"><a href="admin-dashboard.html">Admin</a><a href="index.html">Site</a>
+      <span id="navAuth"></span></nav>
+  </div>
+</header>
+
+<main class="container">
+  <h1>Admin Dashboard</h1>
+  <p class="lead" style="margin-bottom:22px" id="adminWho"></p>
+  <div class="alert" id="msg"></div>
+
+  <div class="stat-row">
+    <div class="stat"><b id="stTotal">0</b><span>Total requests</span></div>
+    <div class="stat"><b id="stNew">0</b><span>New / unhandled</span></div>
+    <div class="stat"><b id="stProgress">0</b><span>In progress</span></div>
+    <div class="stat"><b id="stChats">0</b><span>Chat threads</span></div>
+  </div>
+
+  <div class="tabs">
+    <button class="active" data-tab="reqs">Service Requests</button>
+    <button data-tab="chats">Customer Messages</button>
+  </div>
+
+  <!-- ── requests ── -->
+  <section class="tab-panel active" id="tab-reqs">
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table><thead><tr>
+        <th>Customer</th><th>Contact</th><th>Service</th><th>Issue</th><th>Preferred</th><th>Status</th><th>Update</th>
+      </tr></thead><tbody id="reqBody"></tbody></table>
+    </div>
+    <div class="empty" id="reqEmpty" style="display:none">No service requests yet.</div>
+  </section>
+
+  <!-- ── chats ── -->
+  <section class="tab-panel" id="tab-chats">
+    <div class="chat-layout">
+      <aside class="chat-list" id="threadList">
+        <div class="empty" style="padding:22px 14px;font-size:.86rem">Loading threads…</div>
+      </aside>
+      <section class="chat-panel">
+        <div class="chat-head" id="threadHead">Select a conversation</div>
+        <div class="chat-body" id="chatBody">
+          <div class="empty">Pick a customer on the left to read and reply.</div>
+        </div>
+        <div class="chat-foot">
+          <div class="row">
+            <input type="file" id="fileInput" style="flex:0 0 auto;width:auto;padding:7px" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.txt">
+            <span class="file-row" id="fileName"></span>
+          </div>
+          <div class="row">
+            <input id="msgInput" placeholder="Reply to customer…" autocomplete="off" disabled>
+            <button class="btn" id="sendBtn" disabled>Send</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<footer><div class="container footer-inner"><div><strong>Mahadev Computer Service Center</strong> — Admin</div>
+  <div><a href="index.html">View website</a></div></div></footer>
+
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
+<script src="js/config.js"></script><script src="js/app.js"></script>
+<script>
+let ADMIN = null, ACTIVE = null, CHANNEL = null;
+
+const statusOpt = (v) => `
+  <select class="statusSel" data-cur="${v}">
+    <option value="new"${v === "new" ? " selected" : ""}>New</option>
+    <option value="in_progress"${v === "in_progress" ? " selected" : ""}>In progress</option>
+    <option value="completed"${v === "completed" ? " selected" : ""}>Completed</option>
+    <option value="cancelled"${v === "cancelled" ? " selected" : ""}>Cancelled</option>
+  </select>`;
+
+function bubble(m) {
+  const mine = m.sender_role === "admin";
+  const file = m.file_url
+    ? `<a href="${m.file_url}" target="_blank" rel="noopener">📎 ${m.file_name || "Attachment"}</a>` : "";
+  const body = m.body ? m.body.replace(/</g, "&lt;") : "";
+  return `<div class="msg ${mine ? "me" : "them"}">${body}${body && file ? "<br>" : ""}${file}
+    <span class="meta">${mine ? "Admin" : "Customer"} · ${fmtDate(m.created_at)}</span></div>`;
+}
+
+(async function () {
+  ADMIN = await requireAdmin();
+  if (!ADMIN) return;
+  $("#adminWho").textContent = "Logged in as " + ADMIN.email;
+
+  $$(".tabs button").forEach((b) => b.onclick = () => {
+    $$(".tabs button").forEach((x) => x.classList.remove("active"));
+    $$(".tab-panel").forEach((p) => p.classList.remove("active"));
+    b.classList.add("active"); $("#tab-" + b.dataset.tab).classList.add("active");
+  });
+
+  /* ── service requests ── */
+  async function loadRequests() {
+    const { data, error } = await sb.from("service_requests")
+      .select("*").order("created_at", { ascending: false });
+    if (error) return toast($("#msg"), error.message);
+    const rows = data || [];
+    $("#reqBody").innerHTML = rows.map((r) => `
+      <tr data-id="${r.id}">
+        <td><strong>${r.customer_name || "—"}</strong></td>
+        <td>${r.customer_email || ""}<br><small>${r.customer_phone || ""}</small></td>
+        <td>${r.service_name}</td>
+        <td>${(r.issue || "").slice(0, 90)}</td>
+        <td>${r.preferred_date || "—"}</td>
+        <td>${statusOpt(r.status)}</td>
+        <td><button class="btn sm saveRow" data-id="${r.id}">Save</button></td>
+      </tr>`).join("");
+    $("#reqEmpty").style.display = rows.length ? "none" : "block";
+
+    $("#stTotal").textContent = rows.length;
+    $("#stNew").textContent = rows.filter((r) => r.status === "new").length;
+    $("#stProgress").textContent = rows.filter((r) => r.status === "in_progress").length;
+
+    $$(".saveRow").forEach((btn) => btn.onclick = async () => {
+      const tr = btn.closest("tr");
+      const status = tr.querySelector(".statusSel").value;
+      const { error } = await sb.from("service_requests").update({ status }).eq("id", btn.dataset.id);
+      if (error) return toast($("#msg"), error.message);
+      toast($("#msg"), "Status updated.", "ok");
+      loadRequests();
+    });
+  }
+
+  /* ── chat threads ── */
+  async function loadThreads() {
+    const { data, error } = await sb.from("messages")
+      .select("*").order("created_at", { ascending: false });
+    if (error) return toast($("#msg"), error.message);
+
+    const map = new Map();
+    (data || []).forEach((m) => { if (!map.has(m.user_id)) map.set(m.user_id, m); });
+    $("#stChats").textContent = map.size;
+
+    if (!map.size) {
+      $("#threadList").innerHTML = '<div class="empty" style="padding:22px 14px;font-size:.86rem">No messages yet.</div>';
+      return;
+    }
+    $("#threadList").innerHTML = [...map.entries()].map(([uid, last]) => `
+      <div class="item ${ACTIVE === uid ? "active" : ""}" data-uid="${uid}">
+        <strong>${last.customer_name || uid.slice(0, 8)}</strong>
+        <small>${(last.body || "📎 Attachment").slice(0, 42)}</small>
+        <small>${fmtDate(last.created_at)}</small>
+      </div>`).join("");
+
+    $$("#threadList .item").forEach((el) => el.onclick = () => openThread(el.dataset.uid));
+  }
+
+  async function openThread(uid) {
+    ACTIVE = uid;
+    $$("#threadList .item").forEach((x) => x.classList.toggle("active", x.dataset.uid === uid));
+    const { data, error } = await sb.from("messages")
+      .select("*").eq("user_id", uid).order("created_at", { ascending: true });
+    if (error) return toast($("#msg"), error.message);
+    $("#threadHead").textContent = "Conversation · " + uid.slice(0, 8);
+    $("#chatBody").innerHTML = (data || []).map(bubble).join("") ||
+      '<div class="empty">No messages in this thread.</div>';
+    $("#chatBody").scrollTop = $("#chatBody").scrollHeight;
+    $("#msgInput").disabled = false;
+    $("#sendBtn").disabled = false;
+
+    if (CHANNEL) sb.removeChannel(CHANNEL);
+    CHANNEL = sb.channel("admin-chat-" + uid)
+      .on("postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages", filter: `user_id=eq.${uid}` },
+          () => openThread(uid))
+      .subscribe();
+  }
+
+  $("#fileInput").addEventListener("change", (e) => {
+    $("#fileName").textContent = e.target.files[0]?.name || "";
+  });
+
+  $("#sendBtn").onclick = async () => {
+    if (!ACTIVE) return;
+    const text = $("#msgInput").value.trim();
+    const file = $("#fileInput").files[0];
+    if (!text && !file) return;
+
+    const btn = $("#sendBtn"); btn.disabled = true; btn.textContent = "Sending…";
+    let file_url = null, file_name = null;
+
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        btn.disabled = false; btn.textContent = "Send";
+        return toast($("#msg"), "File too large — 10 MB maximum.");
+      }
+      const path = `${ACTIVE}/${Date.now()}-admin-${file.name.replace(/[^\w.\-]/g, "_")}`;
+      const up = await sb.storage.from("chat-uploads").upload(path, file);
+      if (up.error) { btn.disabled = false; btn.textContent = "Send"; return toast($("#msg"), up.error.message); }
+      const signed = await sb.storage.from("chat-uploads").createSignedUrl(path, 60 * 60 * 24 * 30);
+      file_url = signed.data?.signedUrl || null;
+      file_name = file.name;
+    }
+
+    const { error } = await sb.from("messages").insert({
+      user_id: ACTIVE, sender_id: ADMIN.id, sender_role: "admin",
+      body: text || null, file_url, file_name,
+    });
+    btn.disabled = false; btn.textContent = "Send";
+    if (error) return toast($("#msg"), error.message);
+
+    $("#msgInput").value = ""; $("#fileInput").value = ""; $("#fileName").textContent = "";
+    openThread(ACTIVE);
+    loadThreads();
+  };
+
+  $("#msgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#sendBtn").click(); });
+
+  await loadRequests();
+  await loadThreads();
+  sb.channel("admin-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "service_requests" }, loadRequests)
+    .subscribe();
+})();
+</script>
+</body>
+</html>
